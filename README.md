@@ -14,3 +14,7 @@
 
 ### 数据存储
 - 参照 [斯坦福大型网络数据集中的维基百科相关](https://snap.stanford.edu/data/wiki-meta.html)
+
+## 项目进程
+- 已经完成：可以拿到一个 Category 下所有 Subcategories 和 Pages。
+- 未完成：根据 Page title 调用维基百科 API，获取 Page 信息。

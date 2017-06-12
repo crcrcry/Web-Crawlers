@@ -57,5 +57,8 @@ typings/
 # dotenv environment variables file
 .env
 
+# JetBrain project config file
+.idea
+
 # other
 .DS_Store

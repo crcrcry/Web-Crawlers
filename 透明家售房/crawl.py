@@ -7,6 +7,7 @@ import datetime
 from tenacity import retry
 from pymongo import MongoClient
 
+# 获取所有楼盘列表
 def fetchProjects():
     URI = 'http://www.tmsf.com/include/hzweb/index_search_center_property.js'
     r = requests.get(URI)
@@ -19,13 +20,15 @@ def fetchProjects():
     print('fetched %d projects' % len(projects))
     return projects
 
+# 获取楼盘下所有楼的房子的信息
 def fetchProjectInfo(projects):
     i = 0
     houses = []
     now = datetime.datetime.now().strftime('%Y%m%d%H')
+
     # 基本信息获取
     for proj in projects:
-        # test
+        # test，全部抓一遍太耗时
         i = i + 1
         if i < 300:
             continue
@@ -44,6 +47,7 @@ def fetchProjectInfo(projects):
     for item in houses:
         proj = item['price']
 
+        # 详细数据分为 需要翻页获取的 和 不需要翻页获取的
         detailData = {
             'page': [
                 {
@@ -81,6 +85,7 @@ def fetchProjectInfo(projects):
         for data in detailData['noPage']:
             item[data['name']] = pageDataCrawling(data['url'], data['regexr'])
 
+        # 获取每一页中的每个房子的信息
         item['houses'] = []
         for data in item['houseList']:
             nowUrl = 'http://jia3.tmsf.com/tmj3/property_house.jspx?showid=%d&linkid=%d&siteid=%s&uuid=&openid=&_=' % (data['houseid'], proj['cohProperty']['propertyid'], proj['cohProperty']['siteid'])
@@ -89,7 +94,7 @@ def fetchProjectInfo(projects):
     print('fetched %d houses info' % len(houses))
     return houses
 
-
+# 爬取无需翻页的数据
 def dataCrawling(url, regexr):
     headers = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.115 Safari/537.36'}
@@ -109,6 +114,7 @@ def dataCrawling(url, regexr):
 
     return json.loads(m)
 
+# 爬取需要翻页的数据
 def pageDataCrawling(url, regexr):
     page = 1
     list = []
@@ -122,7 +128,7 @@ def pageDataCrawling(url, regexr):
             page = page + 1
     return list
 
-
+# 更新数据库
 def updateProjectStore(db, collection, infos):
     # update data in db
     for item in infos:
@@ -133,6 +139,8 @@ def updateProjectStore(db, collection, infos):
         else:
             print("duplicate item")
 
+
+# Main 入口
 # duration: interval(seconds)
 def main(duration):
     # while 1 == 1:

@@ -1,6 +1,15 @@
 # 透明家售房
 - [透明家售房](http://jia3.tmsf.com/web3/index.html)，杭州房屋数据爬虫，为 HomeFinder 做准备。
 
+## 进度
+### 已完成
+- 楼盘基本数据获取
+- 楼盘具体数据获取
+
+---
+### 未完成
+- 楼盘数据分类、处理、存储
+
 ## 收获
 - request 和 re 模块熟悉
 - mongodb 和 pymongo 熟悉

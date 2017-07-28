@@ -91,6 +91,18 @@ def fetchProjectInfo(projects):
             nowUrl = 'http://jia3.tmsf.com/tmj3/property_house.jspx?showid=%d&linkid=%d&siteid=%s&uuid=&openid=&_=' % (data['houseid'], proj['cohProperty']['propertyid'], proj['cohProperty']['siteid'])
             item['houses'].append(dataCrawling(nowUrl, ''))
 
+    # 统一处理数据，加上 propertyid
+    for item in houses:
+        for property in item:
+            # 处理 list
+            if type(item[property]) == list:
+                for obj in item[property]:
+                    obj['propertyid'] = item['price']['cohProperty']['propertyid']
+            # 处理 dict
+            else:
+                item[property]['propertyid'] = item['price']['cohProperty']['propertyid']
+
+
     print('fetched %d houses info' % len(houses))
     return houses
 
@@ -129,16 +141,26 @@ def pageDataCrawling(url, regexr):
     return list
 
 # 更新数据库
-def updateProjectStore(db, collection, infos):
+def updateProjectStore(db, infos):
     # update data in db
-    for item in infos:
-        result = collection.find({"price.cohProperty.propertyid": item['price']['cohProperty']['propertyid']}).count()
-        if result == 0:
-            collection.insert_one(item)
-            print("insert success")
-        else:
-            print("duplicate item")
+    collections = {
+        'price': db.prices,                 # 楼盘价格，propertyid 分辨楼盘，下同
+        'images': db.images,                # 楼盘图片
+        'housetype': db.housetypes,         # 楼盘下的经典户型
+        'news': db.news,                    # 所有楼盘新闻列表
+        'comment': db.comments,             # 所有楼盘评价列表
+        'houseList': db.houseLists,         # 所有楼盘的所有 houses 的简要信息列表
+        'houses': db.houses                 # 所有楼盘的所有 houses 的详细信息列表
+    }
 
+    for item in infos:
+        for collection in collections:
+            # 清除旧的数据，用新的数据填充，保持数据最新
+            collections[collection].remove({'propertyid': item['price']['propertyid']})
+            if len(item[collection]) != 0:
+                collections[collection].insert(item[collection])
+
+    print('update success')
 
 # Main 入口
 # duration: interval(seconds)
@@ -146,11 +168,10 @@ def main(duration):
     # while 1 == 1:
         conn = MongoClient()
         db = conn.HangzhouHouses    # database
-        collection = db.houses      # connection
 
         projects = fetchProjects()
         houses = fetchProjectInfo(projects)
-        updateProjectStore(db, collection, houses)
+        updateProjectStore(db, houses)
 
         # time.sleep(duration)
 

@@ -11,8 +11,13 @@ from pymongo import MongoClient
 def fetchProjects():
     URI = 'http://www.tmsf.com/include/hzweb/index_search_center_property.js'
     r = requests.get(URI)
-    if r.status_code != 200:
-        raise RuntimeError('server responded %d' % r.status_code)
+    
+    # 请求失败时 重新请求
+    while r.status_code != 200:
+        print('server responded %d' % r.status_code)
+        time.sleep(1)
+        r = requests.get(URI)
+
     m = re.search(r'data_auto\s*=(.+);', r.text, re.M)
     if not m:
         raise RuntimeError('cannot find projects')
@@ -29,11 +34,12 @@ def fetchProjectInfo(projects):
     # 基本信息获取
     for proj in projects:
         # test，全部抓一遍太耗时
-        i = i + 1
-        if i < 300:
-            continue
-        elif i > 305:
-            break
+        # i = i + 1
+        # print('基本'+str(i))
+        # if i < 300:
+        #     continue
+        # elif i > 305:
+        #     break
 
         # sleep to avoid getting too fast
         time.sleep(0.5)
@@ -41,12 +47,18 @@ def fetchProjectInfo(projects):
 
         result = {}
         result['price'] = dataCrawling(URI, 'priceboj\s*=\s*\'(.*)\'')
-        houses.append(result)
+        # 没抓到就别放进去了，防止 keyError
+        if 'cohProperty' in result['price'].keys():
+            houses.append(result)
+    print('基本信息获取完毕')
 
+    i = 0
     # 详细数据获取
     for item in houses:
         proj = item['price']
 
+        # i = i + 1
+        # print('详细'+str(i))
         # 详细数据分为 需要翻页获取的 和 不需要翻页获取的
         detailData = {
             'page': [
@@ -91,6 +103,8 @@ def fetchProjectInfo(projects):
             nowUrl = 'http://jia3.tmsf.com/tmj3/property_house.jspx?showid=%d&linkid=%d&siteid=%s&uuid=&openid=&_=' % (data['houseid'], proj['cohProperty']['propertyid'], proj['cohProperty']['siteid'])
             item['houses'].append(dataCrawling(nowUrl, ''))
 
+    print('详细信息获取完毕')
+
     # 统一处理数据，加上 propertyid
     for item in houses:
         for property in item:
@@ -101,7 +115,7 @@ def fetchProjectInfo(projects):
             # 处理 dict
             else:
                 item[property]['propertyid'] = item['price']['cohProperty']['propertyid']
-
+    print('数据处理完毕，准备存储入数据库')
 
     print('fetched %d houses info' % len(houses))
     return houses
@@ -112,9 +126,20 @@ def dataCrawling(url, regexr):
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.115 Safari/537.36'}
 
     r = requests.get(url, headers=headers)
+    fail_count = 0
 
-    if r.status_code != 200:
+    # 请求失败时 重新请求
+    while r.status_code != 200:
+        fail_count = fail_count + 1
         print('server responded %d' % r.status_code)
+
+        # 三次请求失败，这个数据先暂时不要了
+        if fail_count >= 3:
+            # print('三次请求失败，这个数据先暂时不要了')
+            return {}
+        else:
+            time.sleep(1)
+            r = requests.get(url, headers=headers)
 
     if regexr == '':
         m = r.text
@@ -165,7 +190,7 @@ def updateProjectStore(db, infos):
 # Main 入口
 # duration: interval(seconds)
 def main(duration):
-    # while 1 == 1:
+    while 1 == 1:
         conn = MongoClient()
         db = conn.HangzhouHouses    # database
 
@@ -173,7 +198,8 @@ def main(duration):
         houses = fetchProjectInfo(projects)
         updateProjectStore(db, houses)
 
-        # time.sleep(duration)
+        # print('finish once')
+        time.sleep(duration)
 
 if __name__ == '__main__':
     main(80000)

@@ -4,23 +4,28 @@ import json
 import time
 import datetime
 
-from tenacity import retry
 from pymongo import MongoClient
 
 # 获取所有楼盘列表
 def fetchProjects():
     URI = 'http://www.tmsf.com/include/hzweb/index_search_center_property.js'
     r = requests.get(URI)
-    
-    # 请求失败时 重新请求
+    fail_count = 0
+
+    # 请求失败时 重新请求 5 次。
     while r.status_code != 200:
+        fail_count = fail_count + 1
+        if fail_count >= 5:
+            return []
+
         print('server responded %d' % r.status_code)
-        time.sleep(1)
+        time.sleep(0.5)
         r = requests.get(URI)
 
     m = re.search(r'data_auto\s*=(.+);', r.text, re.M)
     if not m:
-        raise RuntimeError('cannot find projects')
+        print('cannot find projects')
+        return []
     projects = json.loads(m.group(1))
     print('fetched %d projects' % len(projects))
     return projects
@@ -30,36 +35,24 @@ def fetchProjectInfo(projects):
     i = 0
     houses = []
     now = datetime.datetime.now().strftime('%Y%m%d%H')
+    nowtime = datetime.datetime.now().strftime('%Y-%m-%d %H')
 
     # 基本信息获取
     for proj in projects:
-        # test，全部抓一遍太耗时
-        # i = i + 1
-        # print('基本'+str(i))
-        # if i < 300:
-        #     continue
-        # elif i > 305:
-        #     break
-
-        # sleep to avoid getting too fast
-        time.sleep(0.5)
         URI = 'http://jia3.tmsf.com/tmj3/property_price.jspx?propertyid=%d&siteid=33&_d=%s' % (proj['propertyid'], now)
 
         result = {}
         result['price'] = dataCrawling(URI, 'priceboj\s*=\s*\'(.*)\'')
         # 没抓到就别放进去了，防止 keyError
         if 'cohProperty' in result['price'].keys():
+            result['price']['crawltime'] = nowtime  # 价格历史 时间数据
             houses.append(result)
     print('基本信息获取完毕')
 
-    i = 0
     # 详细数据获取
     for item in houses:
         proj = item['price']
 
-        # i = i + 1
-        # print('详细'+str(i))
-        # 详细数据分为 需要翻页获取的 和 不需要翻页获取的
         detailData = {
             'page': [
                 {
@@ -122,34 +115,39 @@ def fetchProjectInfo(projects):
 
 # 爬取无需翻页的数据
 def dataCrawling(url, regexr):
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.115 Safari/537.36'}
+    # 请求时较容易发生网络错误，需要有对异常、对非200状态码的处理
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.115 Safari/537.36'}
 
-    r = requests.get(url, headers=headers)
-    fail_count = 0
+        # time.sleep(0.5)     # 防止连续请求，请求太快
+        r = requests.get(url, headers=headers)
+        fail_count = 0
 
-    # 请求失败时 重新请求
-    while r.status_code != 200:
-        fail_count = fail_count + 1
-        print('server responded %d' % r.status_code)
+        # 请求失败时，重新请求
+        while r.status_code != 200:
+            fail_count = fail_count + 1
+            print('server responded %d' % r.status_code)
 
-        # 三次请求失败，这个数据先暂时不要了
-        if fail_count >= 3:
-            # print('三次请求失败，这个数据先暂时不要了')
-            return {}
+            # 三次请求失败，这个数据先暂时不要了
+            if fail_count >= 3:
+                raise Exception('三次请求失败，这个数据先暂时不要了')
+            else:
+                time.sleep(0.5)
+                r = requests.get(url, headers=headers)
+
+        if regexr == '':
+            m = r.text
         else:
-            time.sleep(1)
-            r = requests.get(url, headers=headers)
+            m = re.search(regexr, r.text)
+            if not m:
+                raise Exception('cannot find project info for proj')
+            m = m.group(1)
 
-    if regexr == '':
-        m = r.text
-    else:
-        m = re.search(regexr, r.text)
-        if not m:
-            print('cannot find project info for proj')
-        m = m.group(1)
-
-    return json.loads(m)
+        return json.loads(m)
+    except Exception as e:
+        print('Error in dataCrawling: %s' % e)
+        return {}
 
 # 爬取需要翻页的数据
 def pageDataCrawling(url, regexr):
@@ -180,26 +178,28 @@ def updateProjectStore(db, infos):
 
     for item in infos:
         for collection in collections:
-            # 清除旧的数据，用新的数据填充，保持数据最新
-            collections[collection].remove({'propertyid': item['price']['propertyid']})
-            if len(item[collection]) != 0:
+            # price 数据记录历史
+            if collection == 'price':
                 collections[collection].insert(item[collection])
+            # 清除旧的数据，用新的数据填充，保持数据最新
+            else:
+                collections[collection].remove({'propertyid': item['price']['propertyid']})
+                if len(item[collection]) != 0:
+                    collections[collection].insert(item[collection])
 
     print('update success')
 
 # Main 入口
-# duration: interval(seconds)
-def main(duration):
-    while 1 == 1:
+def main():
+    try:
         conn = MongoClient()
-        db = conn.HangzhouHouses    # database
+        db = conn.HangzhouHouses  # database
 
         projects = fetchProjects()
         houses = fetchProjectInfo(projects)
         updateProjectStore(db, houses)
-
-        # print('finish once')
-        time.sleep(duration)
+    except Exception as e:
+        print("Error: %s" % e)
 
 if __name__ == '__main__':
-    main(80000)
+    main()

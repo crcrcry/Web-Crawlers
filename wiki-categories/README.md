@@ -1,5 +1,5 @@
 # Wiki-Spider
-- 维基百科 Wikipedia 数据爬虫
+- 维基百科 Wikipedia 词条数据爬虫
 
 ## 原理
 ### 文件树
